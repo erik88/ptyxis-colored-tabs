@@ -84,6 +84,7 @@ typedef enum _PtyxisTabProgress
 G_DECLARE_FINAL_TYPE (PtyxisTab, ptyxis_tab, PTYXIS, TAB, GtkWidget)
 
 PtyxisTab          *ptyxis_tab_new                                (PtyxisProfile        *profile);
+const char         *ptyxis_tab_get_tint                           (PtyxisTab            *self);
 PtyxisTerminal     *ptyxis_tab_get_terminal                       (PtyxisTab            *self);
 PtyxisProfile      *ptyxis_tab_get_profile                        (PtyxisTab            *self);
 void                ptyxis_tab_apply_profile                      (PtyxisTab            *self,

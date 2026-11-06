@@ -86,6 +86,8 @@ struct _PtyxisWindow
 
   guint                  visual_bell_source;
   guint                  focus_active_tab_source;
+  guint                  update_tints_source;
+  char                  *header_tint;
 
   guint                  tab_overview_animating : 1;
   guint                  disposed : 1;
@@ -410,6 +412,97 @@ update_visible_and_maybe_close (PtyxisWindow *self)
 }
 
 static void
+ptyxis_window_apply_tint_to_tabs (GtkWidget *widget,
+                                  GType      tab_type)
+{
+  /* AdwTabBar has no API to style one tab, but its AdwTab widgets expose a
+   * "page" property, which is also what we use to find the tab under the
+   * pointer in ptyxis_window_get_tab_at_tab_bar_point().
+   */
+  if (G_TYPE_CHECK_INSTANCE_TYPE (widget, tab_type))
+    {
+      g_autoptr(AdwTabPage) page = NULL;
+      const char *previous = g_object_get_data (G_OBJECT (widget), "PTYXIS_TINT");
+      const char *tint = NULL;
+      GtkWidget *child;
+
+      g_object_get (widget, "page", &page, NULL);
+
+      if (page != NULL &&
+          (child = adw_tab_page_get_child (page)) &&
+          PTYXIS_IS_TAB (child))
+        tint = ptyxis_tab_get_tint (PTYXIS_TAB (child));
+
+      if (g_strcmp0 (previous, tint) != 0)
+        {
+          if (previous != NULL)
+            gtk_widget_remove_css_class (widget, previous);
+
+          if (tint != NULL)
+            gtk_widget_add_css_class (widget, tint);
+
+          g_object_set_data_full (G_OBJECT (widget), "PTYXIS_TINT", g_strdup (tint), g_free);
+        }
+
+      return;
+    }
+
+  for (GtkWidget *child = gtk_widget_get_first_child (widget);
+       child != NULL;
+       child = gtk_widget_get_next_sibling (child))
+    ptyxis_window_apply_tint_to_tabs (child, tab_type);
+}
+
+static gboolean
+ptyxis_window_update_tints_cb (gpointer data)
+{
+  PtyxisWindow *self = data;
+  PtyxisTab *active_tab;
+  const char *tint = NULL;
+  GType tab_type;
+
+  g_assert (PTYXIS_IS_WINDOW (self));
+
+  self->update_tints_source = 0;
+
+  if ((tab_type = g_type_from_name ("AdwTab")) != G_TYPE_INVALID)
+    ptyxis_window_apply_tint_to_tabs (GTK_WIDGET (self->tab_bar), tab_type);
+
+  /* "superuser" and "remote" are managed on the window by
+   * ptyxis_window_notify_process_leader_kind_cb().
+   */
+  if ((active_tab = ptyxis_window_get_active_tab (self)) &&
+      (tint = ptyxis_tab_get_tint (active_tab)) &&
+      !g_str_has_prefix (tint, "tint-"))
+    tint = NULL;
+
+  if (g_strcmp0 (self->header_tint, tint) != 0)
+    {
+      if (self->header_tint != NULL)
+        gtk_widget_remove_css_class (GTK_WIDGET (self), self->header_tint);
+
+      if (tint != NULL)
+        gtk_widget_add_css_class (GTK_WIDGET (self), tint);
+
+      g_set_str (&self->header_tint, tint);
+    }
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+ptyxis_window_queue_update_tints (PtyxisWindow *self)
+{
+  g_assert (PTYXIS_IS_WINDOW (self));
+
+  /* From an idle, since AdwTabBar creates its tabs in response to the same
+   * signals that we are reacting to.
+   */
+  if (self->update_tints_source == 0)
+    self->update_tints_source = g_idle_add (ptyxis_window_update_tints_cb, self);
+}
+
+static void
 ptyxis_window_page_attached_cb (PtyxisWindow *self,
                                 AdwTabPage   *page,
                                 int           position,
@@ -420,6 +513,19 @@ ptyxis_window_page_attached_cb (PtyxisWindow *self,
   g_assert (ADW_IS_TAB_VIEW (tab_view));
 
   update_visible_and_maybe_close (self);
+
+  g_signal_connect_object (adw_tab_page_get_child (page),
+                           "notify::tint",
+                           G_CALLBACK (ptyxis_window_queue_update_tints),
+                           self,
+                           G_CONNECT_SWAPPED);
+  /* Pinning moves the page to a new AdwTab in the pinned section. */
+  g_signal_connect_object (page,
+                           "notify::pinned",
+                           G_CALLBACK (ptyxis_window_queue_update_tints),
+                           self,
+                           G_CONNECT_SWAPPED);
+  ptyxis_window_queue_update_tints (self);
 }
 
 static void
@@ -432,7 +538,17 @@ ptyxis_window_page_detached_cb (PtyxisWindow *self,
   g_assert (ADW_IS_TAB_PAGE (page));
   g_assert (ADW_IS_TAB_VIEW (tab_view));
 
+  g_signal_handlers_disconnect_by_func (adw_tab_page_get_child (page),
+                                        G_CALLBACK (ptyxis_window_queue_update_tints),
+                                        self);
+  g_signal_handlers_disconnect_by_func (page,
+                                        G_CALLBACK (ptyxis_window_queue_update_tints),
+                                        self);
+
   update_visible_and_maybe_close (self);
+
+  if (!self->disposed)
+    ptyxis_window_queue_update_tints (self);
 }
 
 static gboolean
@@ -1953,6 +2069,8 @@ ptyxis_window_dispose (GObject *object)
   g_binding_group_set_source (self->active_tab_bindings, NULL);
   g_binding_group_set_source (self->profile_bindings, NULL);
   g_signal_group_set_target (self->selected_page_signals, NULL);
+  g_clear_handle_id (&self->update_tints_source, g_source_remove);
+  g_clear_pointer (&self->header_tint, g_free);
   g_clear_handle_id (&self->focus_active_tab_source, g_source_remove);
   g_clear_object (&self->parking_lot);
   g_clear_object (&self->interface_style_action);
@@ -2218,6 +2336,17 @@ ptyxis_window_init (PtyxisWindow *self)
                            G_CONNECT_SWAPPED);
   gtk_widget_add_controller (GTK_WIDGET (self->tab_bar),
                              GTK_EVENT_CONTROLLER (g_steal_pointer (&click)));
+
+  g_signal_connect_object (self->tab_view,
+                           "notify::selected-page",
+                           G_CALLBACK (ptyxis_window_queue_update_tints),
+                           self,
+                           G_CONNECT_SWAPPED);
+  g_signal_connect_object (self->tab_view,
+                           "page-reordered",
+                           G_CALLBACK (ptyxis_window_queue_update_tints),
+                           self,
+                           G_CONNECT_SWAPPED);
 
   gtk_custom_filter_set_filter_func (self->not_containers_filter,
                                      empty_display_name, NULL, NULL);

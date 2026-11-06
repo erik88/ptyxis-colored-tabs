@@ -60,6 +60,7 @@ enum {
   PROP_USE_SYSTEM_FONT,
   PROP_VISUAL_BELL,
   PROP_VISUAL_PROCESS_LEADER,
+  PROP_PROCESS_TINTS,
   PROP_WORD_CHAR_EXCEPTIONS,
   PROP_INHIBIT_LOGOUT,
   N_PROPS
@@ -92,6 +93,8 @@ ptyxis_settings_changed_cb (PtyxisSettings *self,
     g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_VISUAL_BELL]);
   else if (g_str_equal (key, PTYXIS_SETTING_KEY_VISUAL_PROCESS_LEADER))
     g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_VISUAL_PROCESS_LEADER]);
+  else if (g_str_equal (key, PTYXIS_SETTING_KEY_PROCESS_TINTS))
+    g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_PROCESS_TINTS]);
   else if (g_str_equal (key, PTYXIS_SETTING_KEY_CURSOR_SHAPE))
     g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_CURSOR_SHAPE]);
   else if (g_str_equal (key, PTYXIS_SETTING_KEY_CURSOR_BLINK_MODE))
@@ -250,6 +253,10 @@ ptyxis_settings_get_property (GObject    *object,
 
     case PROP_VISUAL_PROCESS_LEADER:
       g_value_set_boolean (value, ptyxis_settings_get_visual_process_leader (self));
+      break;
+
+    case PROP_PROCESS_TINTS:
+      g_value_take_variant (value, ptyxis_settings_dup_process_tints (self));
       break;
 
     default:
@@ -558,6 +565,13 @@ ptyxis_settings_class_init (PtyxisSettingsClass *klass)
                            G_PARAM_EXPLICIT_NOTIFY |
                            G_PARAM_STATIC_STRINGS));
 
+  properties[PROP_PROCESS_TINTS] =
+    g_param_spec_variant (PTYXIS_SETTING_KEY_PROCESS_TINTS, NULL, NULL,
+                          G_VARIANT_TYPE ("a{ss}"),
+                          NULL,
+                          (G_PARAM_READABLE |
+                           G_PARAM_STATIC_STRINGS));
+
   properties[PROP_WORD_CHAR_EXCEPTIONS] =
     g_param_spec_string (PTYXIS_SETTING_KEY_WORD_CHAR_EXCEPTIONS, NULL, NULL,
                          NULL,
@@ -788,6 +802,65 @@ ptyxis_settings_set_visual_bell (PtyxisSettings *self,
   g_settings_set_boolean (self->settings,
                           PTYXIS_SETTING_KEY_VISUAL_BELL,
                           visual_bell);
+}
+
+GVariant *
+ptyxis_settings_dup_process_tints (PtyxisSettings *self)
+{
+  g_return_val_if_fail (PTYXIS_IS_SETTINGS (self), NULL);
+
+  return g_settings_get_value (self->settings, PTYXIS_SETTING_KEY_PROCESS_TINTS);
+}
+
+/**
+ * ptyxis_settings_normalize_tint:
+ * @color: a color string such as "#d97757" or "orange"
+ *
+ * Returns: (transfer full) (nullable): the color as "rrggbb", which is safe
+ *   to use in a CSS class name, or %NULL if @color could not be parsed.
+ */
+char *
+ptyxis_settings_normalize_tint (const char *color)
+{
+  GdkRGBA rgba;
+
+  if (color == NULL || !gdk_rgba_parse (&rgba, color))
+    return NULL;
+
+  return g_strdup_printf ("%02x%02x%02x",
+                          (guint)(CLAMP (rgba.red, 0, 1) * 255 + .5),
+                          (guint)(CLAMP (rgba.green, 0, 1) * 255 + .5),
+                          (guint)(CLAMP (rgba.blue, 0, 1) * 255 + .5));
+}
+
+/**
+ * ptyxis_settings_dup_tint_for_program:
+ * @self: a #PtyxisSettings
+ * @program_name: argv[0] of the foreground process
+ *
+ * Returns: (transfer full) (nullable): the tint as "rrggbb", or %NULL if
+ *   there is no rule for @program_name.
+ */
+char *
+ptyxis_settings_dup_tint_for_program (PtyxisSettings *self,
+                                      const char     *program_name)
+{
+  g_autoptr(GVariant) tints = NULL;
+  g_autofree char *base = NULL;
+  const char *color = NULL;
+
+  g_return_val_if_fail (PTYXIS_IS_SETTINGS (self), NULL);
+
+  if (program_name == NULL || program_name[0] == 0)
+    return NULL;
+
+  base = g_path_get_basename (program_name);
+  tints = ptyxis_settings_dup_process_tints (self);
+
+  if (!g_variant_lookup (tints, base, "&s", &color))
+    return NULL;
+
+  return ptyxis_settings_normalize_tint (color);
 }
 
 gboolean

@@ -132,6 +132,12 @@
       <description>Display a visual window highlight when process leader is SSH, sudo, or other specialized tooling</description>
     </key>
 
+    <key name="process-tints" type="a{ss}">
+      <default>{'claude': '#d97757'}</default>
+      <summary>Process Tints</summary>
+      <description>Maps a foreground program name to a color used for its tab and the window header. SSH and sudo always take priority.</description>
+    </key>
+
     <key name="use-system-font" type="b">
       <default>true</default>
       <summary>Use System Font</summary>

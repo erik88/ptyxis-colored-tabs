@@ -70,6 +70,7 @@ struct _PtyxisTab
   PtyxisTerminal          *terminal;
   char                    *command_line;
   char                    *program_name;
+  char                    *tint;
   PtyxisTabNotify          notify;
   GSignalGroup            *profile_signals;
 
@@ -101,6 +102,7 @@ enum {
   PROP_READ_ONLY,
   PROP_SUBTITLE,
   PROP_TITLE,
+  PROP_TINT,
   PROP_TITLE_PREFIX,
   PROP_UUID,
   PROP_ZOOM,
@@ -115,6 +117,7 @@ enum {
 };
 
 static void ptyxis_tab_respawn (PtyxisTab *self);
+static void ptyxis_tab_update_tint (PtyxisTab *self);
 static void ptyxis_tab_profile_signals_bind_cb (PtyxisTab     *self,
                                                 PtyxisProfile *profile,
                                                 GSignalGroup  *group);
@@ -977,6 +980,12 @@ ptyxis_tab_constructed (GObject *object)
                            G_CONNECT_SWAPPED);
   ptyxis_tab_update_inhibit (self);
 
+  g_signal_connect_object (ptyxis_application_get_settings (PTYXIS_APPLICATION_DEFAULT),
+                           "notify::process-tints",
+                           G_CALLBACK (ptyxis_tab_update_tint),
+                           self,
+                           G_CONNECT_SWAPPED);
+
   self->monitor = ptyxis_tab_monitor_new (self);
 }
 
@@ -1209,6 +1218,7 @@ ptyxis_tab_dispose (GObject *object)
   g_clear_pointer (&self->command, g_strfreev);
   g_clear_pointer (&self->command_line, g_free);
   g_clear_pointer (&self->program_name, g_free);
+  g_clear_pointer (&self->tint, g_free);
 
   G_OBJECT_CLASS (ptyxis_tab_parent_class)->dispose (object);
 }
@@ -1251,6 +1261,10 @@ ptyxis_tab_get_property (GObject    *object,
 
     case PROP_PROCESS_LEADER_KIND:
       g_value_set_enum (value, self->leader_kind);
+      break;
+
+    case PROP_TINT:
+      g_value_set_string (value, ptyxis_tab_get_tint (self));
       break;
 
     case PROP_PROGRESS:
@@ -1382,6 +1396,12 @@ ptyxis_tab_class_init (PtyxisTabClass *klass)
                        PTYXIS_PROCESS_LEADER_KIND_UNKNOWN,
                        (G_PARAM_READABLE |
                         G_PARAM_STATIC_STRINGS));
+
+  properties[PROP_TINT] =
+    g_param_spec_string ("tint", NULL, NULL,
+                         NULL,
+                         (G_PARAM_READABLE |
+                          G_PARAM_STATIC_STRINGS));
 
   properties[PROP_PROFILE] =
     g_param_spec_object ("profile", NULL, NULL,
@@ -1992,6 +2012,45 @@ ptyxis_tab_set_container (PtyxisTab          *self,
   g_set_object (&self->container_at_creation, container);
 }
 
+/* The CSS class for this tab's color. SSH and sudo come first so that a custom
+ * rule can never hide that the tab is remote or running as root.
+ */
+static void
+ptyxis_tab_update_tint (PtyxisTab *self)
+{
+  g_autofree char *tint = NULL;
+
+  g_assert (PTYXIS_IS_TAB (self));
+
+  if (self->leader_kind == PTYXIS_PROCESS_LEADER_KIND_SUPERUSER)
+    {
+      tint = g_strdup ("superuser");
+    }
+  else if (self->leader_kind == PTYXIS_PROCESS_LEADER_KIND_REMOTE)
+    {
+      tint = g_strdup ("remote");
+    }
+  else
+    {
+      PtyxisSettings *settings = ptyxis_application_get_settings (PTYXIS_APPLICATION_DEFAULT);
+      g_autofree char *color = ptyxis_settings_dup_tint_for_program (settings, self->program_name);
+
+      if (color != NULL)
+        tint = g_strdup_printf ("tint-%s", color);
+    }
+
+  if (g_set_str (&self->tint, tint))
+    g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_TINT]);
+}
+
+const char *
+ptyxis_tab_get_tint (PtyxisTab *self)
+{
+  g_return_val_if_fail (PTYXIS_IS_TAB (self), NULL);
+
+  return self->tint;
+}
+
 static void
 ptyxis_tab_poll_agent_cb (GObject      *object,
                           GAsyncResult *result,
@@ -2071,6 +2130,8 @@ ptyxis_tab_poll_agent_cb (GObject      *object,
       g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_COMMAND_LINE]);
     }
 
+  ptyxis_tab_update_tint (self);
+
   if (changed)
     g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_TITLE]);
 
@@ -2110,6 +2171,9 @@ ptyxis_tab_poll_agent_async (PtyxisTab           *self,
           self->leader_kind = PTYXIS_PROCESS_LEADER_KIND_UNKNOWN;
           g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_PROCESS_LEADER_KIND]);
         }
+
+      g_clear_pointer (&self->program_name, g_free);
+      ptyxis_tab_update_tint (self);
 
       g_task_return_boolean (task, FALSE);
 

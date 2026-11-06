@@ -47,6 +47,7 @@ G_BEGIN_DECLS
 #define PTYXIS_SETTING_KEY_USE_SYSTEM_FONT         "use-system-font"
 #define PTYXIS_SETTING_KEY_VISUAL_BELL             "visual-bell"
 #define PTYXIS_SETTING_KEY_VISUAL_PROCESS_LEADER   "visual-process-leader"
+#define PTYXIS_SETTING_KEY_PROCESS_TINTS           "process-tints"
 #define PTYXIS_SETTING_KEY_DISABLE_PADDING         "disable-padding"
 #define PTYXIS_SETTING_KEY_WORD_CHAR_EXCEPTIONS    "word-char-exceptions"
 #define PTYXIS_SETTING_KEY_TAB_MIDDLE_CLICK        "tab-middle-click"
@@ -110,6 +111,10 @@ void                    ptyxis_settings_set_audible_bell            (PtyxisSetti
 gboolean                ptyxis_settings_get_visual_bell             (PtyxisSettings             *self);
 void                    ptyxis_settings_set_visual_bell             (PtyxisSettings             *self,
                                                                      gboolean                    visual_bell);
+GVariant               *ptyxis_settings_dup_process_tints           (PtyxisSettings             *self);
+char                   *ptyxis_settings_dup_tint_for_program        (PtyxisSettings             *self,
+                                                                     const char                 *program_name);
+char                   *ptyxis_settings_normalize_tint              (const char                 *color);
 gboolean                ptyxis_settings_get_visual_process_leader   (PtyxisSettings             *self);
 void                    ptyxis_settings_set_visual_process_leader   (PtyxisSettings             *self,
                                                                      gboolean                    visual_process_leader);

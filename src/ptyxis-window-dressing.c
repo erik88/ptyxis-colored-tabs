@@ -52,6 +52,67 @@ G_DEFINE_FINAL_TYPE (PtyxisWindowDressing, ptyxis_window_dressing, G_TYPE_OBJECT
 static GParamSpec *properties[N_PROPS];
 static guint last_sequence;
 
+/* Tabs: dimmed towards the title bar when inactive, brightened when active so
+ * that the active tab stands out from a header of the same color.
+ */
+static void
+append_tab_tint (GString    *string,
+                 const char *css_class,
+                 const char *tint,
+                 const char *bg,
+                 const char *fg,
+                 const char *titlebar_bg)
+{
+  g_string_append_printf (string,
+                          "window.%s tabbar tab.%s { background-color: mix(%s,%s,.45); color: %s; }\n"
+                          "window.%s tabbar tab.%s:hover { background-color: mix(%s,%s,.25); }\n"
+                          "window.%s tabbar tab.%s:selected { background-color: mix(%s,white,.15); }\n",
+                          css_class, tint, bg, titlebar_bg, fg,
+                          css_class, tint, bg, titlebar_bg,
+                          css_class, tint, bg);
+}
+
+static void
+append_process_tints (GString        *string,
+                      PtyxisSettings *settings,
+                      const char     *css_class,
+                      const char     *titlebar_bg)
+{
+  g_autoptr(GVariant) tints = ptyxis_settings_dup_process_tints (settings);
+  g_autoptr(GHashTable) seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  GVariantIter iter;
+  const char *color;
+
+  g_variant_iter_init (&iter, tints);
+
+  while (g_variant_iter_next (&iter, "{&s&s}", NULL, &color))
+    {
+      g_autofree char *hex = ptyxis_settings_normalize_tint (color);
+      g_autofree char *tint = NULL;
+      g_autofree char *bg = NULL;
+      GdkRGBA rgba;
+      const char *fg;
+
+      if (hex == NULL || g_hash_table_contains (seen, hex))
+        continue;
+
+      g_hash_table_add (seen, g_strdup (hex));
+
+      bg = g_strdup_printf ("#%s", hex);
+      tint = g_strdup_printf ("tint-%s", hex);
+      gdk_rgba_parse (&rgba, bg);
+      fg = (.2126 * rgba.red + .7152 * rgba.green + .0722 * rgba.blue) > .6 ? "#000000" : "#ffffff";
+
+      /* The header is a darker shade, which sits between the tab states. */
+      g_string_append_printf (string,
+                              "window.%s.%s .window-contents headerbar { background-color: mix(%s,black,.2); color: %s; }\n"
+                              "window.%s.%s .window-contents toolbarview > revealer > windowhandle { background-color: mix(%s,black,.2); color: %s; }\n",
+                              css_class, tint, bg, fg,
+                              css_class, tint, bg, fg);
+      append_tab_tint (string, css_class, tint, bg, fg, titlebar_bg);
+    }
+}
+
 static void
 ptyxis_window_dressing_update (PtyxisWindowDressing *self)
 {
@@ -182,6 +243,9 @@ ptyxis_window_dressing_update (PtyxisWindowDressing *self)
                                   "window.%s.superuser .window-contents toolbarview > revealer > windowhandle { background-color: %s; color: %s; }\n",
                                   self->css_class, su_bg, su_fg,
                                   self->css_class, su_bg, su_fg);
+          append_tab_tint (string, self->css_class, "remote", rm_bg, rm_fg, titlebar_bg);
+          append_tab_tint (string, self->css_class, "superuser", su_bg, su_fg, titlebar_bg);
+          append_process_tints (string, settings, self->css_class, titlebar_bg);
         }
 
       if (!ptyxis_palette_use_system_accent (self->palette))
@@ -247,6 +311,12 @@ ptyxis_window_dressing_constructed (GObject *object)
 
   g_signal_connect_object (settings,
                            "notify::visual-process-leader",
+                           G_CALLBACK (ptyxis_window_dressing_queue_update),
+                           self,
+                           G_CONNECT_SWAPPED);
+
+  g_signal_connect_object (settings,
+                           "notify::process-tints",
                            G_CALLBACK (ptyxis_window_dressing_queue_update),
                            self,
                            G_CONNECT_SWAPPED);
