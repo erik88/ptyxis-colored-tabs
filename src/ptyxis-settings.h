@@ -112,9 +112,9 @@ gboolean                ptyxis_settings_get_visual_bell             (PtyxisSetti
 void                    ptyxis_settings_set_visual_bell             (PtyxisSettings             *self,
                                                                      gboolean                    visual_bell);
 GVariant               *ptyxis_settings_dup_process_tints           (PtyxisSettings             *self);
-char                   *ptyxis_settings_dup_tint_for_program        (PtyxisSettings             *self,
+char                   *ptyxis_settings_dup_tint_class_for_program  (PtyxisSettings             *self,
                                                                      const char                 *program_name);
-char                   *ptyxis_settings_normalize_tint              (const char                 *color);
+char                   *ptyxis_settings_tint_class_for_color        (const GdkRGBA              *color);
 gboolean                ptyxis_settings_get_visual_process_leader   (PtyxisSettings             *self);
 void                    ptyxis_settings_set_visual_process_leader   (PtyxisSettings             *self,
                                                                      gboolean                    visual_process_leader);

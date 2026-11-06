@@ -41,6 +41,7 @@ By default this installs to `/usr/local`, alongside any packaged Ptyxis. It uses
 ## Limitations
 
 - Rules match the name a program was started with, so `python foo.py` only matches as `python`.
+- Detection looks at the first program in a pipeline, so `cat prompt.txt | claude` gets no color, and `echo pw | sudo -S cmd` doesn't get the sudo color. A program whose path contains a space won't match a rule either.
 - A background tab's color can lag until the tab produces output.
 - libadwaita has no API for styling a single tab, so this relies on its private tab widgets. A libadwaita update could break the tab colors.
 

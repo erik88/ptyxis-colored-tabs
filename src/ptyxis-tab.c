@@ -118,6 +118,7 @@ enum {
 
 static void ptyxis_tab_respawn (PtyxisTab *self);
 static void ptyxis_tab_update_tint (PtyxisTab *self);
+static void ptyxis_tab_reset_foreground_state (PtyxisTab *self);
 static void ptyxis_tab_profile_signals_bind_cb (PtyxisTab     *self,
                                                 PtyxisProfile *profile,
                                                 GSignalGroup  *group);
@@ -387,6 +388,9 @@ ptyxis_tab_wait_cb (GObject      *object,
   g_assert (self->state == PTYXIS_TAB_STATE_RUNNING);
 
   g_clear_object (&self->process);
+
+  /* Polling stops without a process, so a dead tab would keep its color. */
+  ptyxis_tab_reset_foreground_state (self);
 
   /* Update inhibit state when process exits */
   ptyxis_tab_update_inhibit (self);
@@ -2012,32 +2016,45 @@ ptyxis_tab_set_container (PtyxisTab          *self,
   g_set_object (&self->container_at_creation, container);
 }
 
+static void
+ptyxis_tab_reset_foreground_state (PtyxisTab *self)
+{
+  g_assert (PTYXIS_IS_TAB (self));
+
+  self->has_foreground_process = FALSE;
+  self->pid = -1;
+
+  if (g_set_str (&self->command_line, NULL))
+    g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_COMMAND_LINE]);
+
+  if (self->leader_kind != PTYXIS_PROCESS_LEADER_KIND_UNKNOWN)
+    {
+      self->leader_kind = PTYXIS_PROCESS_LEADER_KIND_UNKNOWN;
+      g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_PROCESS_LEADER_KIND]);
+    }
+
+  g_clear_pointer (&self->program_name, g_free);
+  ptyxis_tab_update_tint (self);
+}
+
 /* The CSS class for this tab's color. SSH and sudo come first so that a custom
  * rule can never hide that the tab is remote or running as root.
  */
 static void
 ptyxis_tab_update_tint (PtyxisTab *self)
 {
-  g_autofree char *tint = NULL;
+  g_autofree char *custom = NULL;
+  const char *tint;
 
   g_assert (PTYXIS_IS_TAB (self));
 
   if (self->leader_kind == PTYXIS_PROCESS_LEADER_KIND_SUPERUSER)
-    {
-      tint = g_strdup ("superuser");
-    }
+    tint = "superuser";
   else if (self->leader_kind == PTYXIS_PROCESS_LEADER_KIND_REMOTE)
-    {
-      tint = g_strdup ("remote");
-    }
+    tint = "remote";
   else
-    {
-      PtyxisSettings *settings = ptyxis_application_get_settings (PTYXIS_APPLICATION_DEFAULT);
-      g_autofree char *color = ptyxis_settings_dup_tint_for_program (settings, self->program_name);
-
-      if (color != NULL)
-        tint = g_strdup_printf ("tint-%s", color);
-    }
+    tint = custom = ptyxis_settings_dup_tint_class_for_program (ptyxis_application_get_settings (PTYXIS_APPLICATION_DEFAULT),
+                                                                self->program_name);
 
   if (g_set_str (&self->tint, tint))
     g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_TINT]);
@@ -2074,14 +2091,21 @@ ptyxis_tab_poll_agent_cb (GObject      *object,
 
   g_assert (PTYXIS_IS_TAB (self));
 
-  ptyxis_ipc_process_call_has_foreground_process_finish (process,
-                                                         &has_foreground_process,
-                                                         &the_pid,
-                                                         &the_cmdline,
-                                                         &the_leader_kind,
-                                                         NULL,
-                                                         result,
-                                                         NULL);
+  /* The out parameters are unset on failure, such as when the process has
+   * just exited. Keep the current state, including the tint.
+   */
+  if (!ptyxis_ipc_process_call_has_foreground_process_finish (process,
+                                                              &has_foreground_process,
+                                                              &the_pid,
+                                                              &the_cmdline,
+                                                              &the_leader_kind,
+                                                              NULL,
+                                                              result,
+                                                              NULL))
+    {
+      g_task_return_boolean (task, FALSE);
+      return;
+    }
 
   if (self->pid != the_pid)
     {
@@ -2130,10 +2154,11 @@ ptyxis_tab_poll_agent_cb (GObject      *object,
       g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_COMMAND_LINE]);
     }
 
-  ptyxis_tab_update_tint (self);
-
   if (changed)
-    g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_TITLE]);
+    {
+      ptyxis_tab_update_tint (self);
+      g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_TITLE]);
+    }
 
   /* Update inhibit state when foreground process changes */
   ptyxis_tab_update_inhibit (self);
@@ -2160,20 +2185,7 @@ ptyxis_tab_poll_agent_async (PtyxisTab           *self,
 
   if (self->process == NULL)
     {
-      self->has_foreground_process = FALSE;
-      self->pid = -1;
-
-      if (g_set_str (&self->command_line, NULL))
-        g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_COMMAND_LINE]);
-
-      if (self->leader_kind != PTYXIS_PROCESS_LEADER_KIND_UNKNOWN)
-        {
-          self->leader_kind = PTYXIS_PROCESS_LEADER_KIND_UNKNOWN;
-          g_object_notify_by_pspec (G_OBJECT (self), properties[PROP_PROCESS_LEADER_KIND]);
-        }
-
-      g_clear_pointer (&self->program_name, g_free);
-      ptyxis_tab_update_tint (self);
+      ptyxis_tab_reset_foreground_state (self);
 
       g_task_return_boolean (task, FALSE);
 

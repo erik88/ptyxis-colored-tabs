@@ -813,54 +813,53 @@ ptyxis_settings_dup_process_tints (PtyxisSettings *self)
 }
 
 /**
- * ptyxis_settings_normalize_tint:
- * @color: a color string such as "#d97757" or "orange"
+ * ptyxis_settings_tint_class_for_color:
+ * @color: a color
  *
- * Returns: (transfer full) (nullable): the color as "rrggbb", which is safe
- *   to use in a CSS class name, or %NULL if @color could not be parsed.
+ * Returns: (transfer full): the CSS class used for tints of @color, which
+ *   is the same for a program's tab and the rules that style it.
  */
 char *
-ptyxis_settings_normalize_tint (const char *color)
+ptyxis_settings_tint_class_for_color (const GdkRGBA *color)
 {
-  GdkRGBA rgba;
+  g_return_val_if_fail (color != NULL, NULL);
 
-  if (color == NULL || !gdk_rgba_parse (&rgba, color))
-    return NULL;
-
-  return g_strdup_printf ("%02x%02x%02x",
-                          (guint)(CLAMP (rgba.red, 0, 1) * 255 + .5),
-                          (guint)(CLAMP (rgba.green, 0, 1) * 255 + .5),
-                          (guint)(CLAMP (rgba.blue, 0, 1) * 255 + .5));
+  return g_strdup_printf ("tint-%02x%02x%02x",
+                          (guint)(CLAMP (color->red, 0, 1) * 255 + .5),
+                          (guint)(CLAMP (color->green, 0, 1) * 255 + .5),
+                          (guint)(CLAMP (color->blue, 0, 1) * 255 + .5));
 }
 
 /**
- * ptyxis_settings_dup_tint_for_program:
+ * ptyxis_settings_dup_tint_class_for_program:
  * @self: a #PtyxisSettings
- * @program_name: argv[0] of the foreground process
+ * @program_name: (nullable): argv[0] of the foreground process
  *
- * Returns: (transfer full) (nullable): the tint as "rrggbb", or %NULL if
- *   there is no rule for @program_name.
+ * Returns: (transfer full) (nullable): the CSS class for the tint, or %NULL
+ *   if there is no valid rule for @program_name.
  */
 char *
-ptyxis_settings_dup_tint_for_program (PtyxisSettings *self,
-                                      const char     *program_name)
+ptyxis_settings_dup_tint_class_for_program (PtyxisSettings *self,
+                                            const char     *program_name)
 {
   g_autoptr(GVariant) tints = NULL;
   g_autofree char *base = NULL;
   const char *color = NULL;
+  GdkRGBA rgba;
 
   g_return_val_if_fail (PTYXIS_IS_SETTINGS (self), NULL);
 
-  if (program_name == NULL || program_name[0] == 0)
+  if (ptyxis_str_empty0 (program_name))
     return NULL;
 
   base = g_path_get_basename (program_name);
   tints = ptyxis_settings_dup_process_tints (self);
 
-  if (!g_variant_lookup (tints, base, "&s", &color))
+  if (!g_variant_lookup (tints, base, "&s", &color) ||
+      !gdk_rgba_parse (&rgba, color))
     return NULL;
 
-  return ptyxis_settings_normalize_tint (color);
+  return ptyxis_settings_tint_class_for_color (&rgba);
 }
 
 gboolean

@@ -87,7 +87,6 @@ struct _PtyxisWindow
   guint                  visual_bell_source;
   guint                  focus_active_tab_source;
   guint                  update_tints_source;
-  char                  *header_tint;
 
   guint                  tab_overview_animating : 1;
   guint                  disposed : 1;
@@ -206,14 +205,30 @@ ptyxis_window_close_page_cb (PtyxisWindow *self,
   return GDK_EVENT_STOP;
 }
 
+/* AdwTab is private to libadwaita, but it has a "page" property. */
+static PtyxisTab *
+ptyxis_tab_from_adw_tab (GtkWidget *adw_tab)
+{
+  g_autoptr(AdwTabPage) page = NULL;
+  GtkWidget *child;
+
+  g_object_get (adw_tab, "page", &page, NULL);
+  g_assert (!page || ADW_IS_TAB_PAGE (page));
+
+  if (page == NULL ||
+      !(child = adw_tab_page_get_child (page)) ||
+      !PTYXIS_IS_TAB (child))
+    return NULL;
+
+  return PTYXIS_TAB (child);
+}
+
 static PtyxisTab *
 ptyxis_window_get_tab_at_tab_bar_point (PtyxisWindow     *self,
                                         graphene_point_t *point)
 {
   static GType tab_type = G_TYPE_INVALID;
-  g_autoptr(AdwTabPage) page = NULL;
   GtkWidget *pick;
-  GtkWidget *child;
 
   g_assert (PTYXIS_IS_WINDOW (self));
   g_assert (point != NULL);
@@ -233,15 +248,7 @@ ptyxis_window_get_tab_at_tab_bar_point (PtyxisWindow     *self,
         return NULL;
     }
 
-  g_object_get (pick, "page", &page, NULL);
-  g_assert (!page || ADW_IS_TAB_PAGE (page));
-
-  if (page == NULL ||
-      !(child = adw_tab_page_get_child (page)) ||
-      !PTYXIS_IS_TAB (child))
-    return NULL;
-
-  return PTYXIS_TAB (child);
+  return ptyxis_tab_from_adw_tab (pick);
 }
 
 static void
@@ -412,37 +419,33 @@ update_visible_and_maybe_close (PtyxisWindow *self)
 }
 
 static void
+set_tint_class (GtkWidget  *widget,
+                const char *tint)
+{
+  const char *previous = g_object_get_data (G_OBJECT (widget), "PTYXIS_TINT");
+
+  if (g_strcmp0 (previous, tint) == 0)
+    return;
+
+  if (previous != NULL)
+    gtk_widget_remove_css_class (widget, previous);
+
+  if (tint != NULL)
+    gtk_widget_add_css_class (widget, tint);
+
+  g_object_set_data_full (G_OBJECT (widget), "PTYXIS_TINT", g_strdup (tint), g_free);
+}
+
+/* AdwTabBar has no API to style one tab, so find its AdwTab widgets. */
+static void
 ptyxis_window_apply_tint_to_tabs (GtkWidget *widget,
                                   GType      tab_type)
 {
-  /* AdwTabBar has no API to style one tab, but its AdwTab widgets expose a
-   * "page" property, which is also what we use to find the tab under the
-   * pointer in ptyxis_window_get_tab_at_tab_bar_point().
-   */
   if (G_TYPE_CHECK_INSTANCE_TYPE (widget, tab_type))
     {
-      g_autoptr(AdwTabPage) page = NULL;
-      const char *previous = g_object_get_data (G_OBJECT (widget), "PTYXIS_TINT");
-      const char *tint = NULL;
-      GtkWidget *child;
+      PtyxisTab *tab = ptyxis_tab_from_adw_tab (widget);
 
-      g_object_get (widget, "page", &page, NULL);
-
-      if (page != NULL &&
-          (child = adw_tab_page_get_child (page)) &&
-          PTYXIS_IS_TAB (child))
-        tint = ptyxis_tab_get_tint (PTYXIS_TAB (child));
-
-      if (g_strcmp0 (previous, tint) != 0)
-        {
-          if (previous != NULL)
-            gtk_widget_remove_css_class (widget, previous);
-
-          if (tint != NULL)
-            gtk_widget_add_css_class (widget, tint);
-
-          g_object_set_data_full (G_OBJECT (widget), "PTYXIS_TINT", g_strdup (tint), g_free);
-        }
+      set_tint_class (widget, tab ? ptyxis_tab_get_tint (tab) : NULL);
 
       return;
     }
@@ -457,8 +460,6 @@ static gboolean
 ptyxis_window_update_tints_cb (gpointer data)
 {
   PtyxisWindow *self = data;
-  PtyxisTab *active_tab;
-  const char *tint = NULL;
   GType tab_type;
 
   g_assert (PTYXIS_IS_WINDOW (self));
@@ -467,25 +468,6 @@ ptyxis_window_update_tints_cb (gpointer data)
 
   if ((tab_type = g_type_from_name ("AdwTab")) != G_TYPE_INVALID)
     ptyxis_window_apply_tint_to_tabs (GTK_WIDGET (self->tab_bar), tab_type);
-
-  /* "superuser" and "remote" are managed on the window by
-   * ptyxis_window_notify_process_leader_kind_cb().
-   */
-  if ((active_tab = ptyxis_window_get_active_tab (self)) &&
-      (tint = ptyxis_tab_get_tint (active_tab)) &&
-      !g_str_has_prefix (tint, "tint-"))
-    tint = NULL;
-
-  if (g_strcmp0 (self->header_tint, tint) != 0)
-    {
-      if (self->header_tint != NULL)
-        gtk_widget_remove_css_class (GTK_WIDGET (self), self->header_tint);
-
-      if (tint != NULL)
-        gtk_widget_add_css_class (GTK_WIDGET (self), tint);
-
-      g_set_str (&self->header_tint, tint);
-    }
 
   return G_SOURCE_REMOVE;
 }
@@ -546,9 +528,6 @@ ptyxis_window_page_detached_cb (PtyxisWindow *self,
                                         self);
 
   update_visible_and_maybe_close (self);
-
-  if (!self->disposed)
-    ptyxis_window_queue_update_tints (self);
 }
 
 static gboolean
@@ -1563,6 +1542,17 @@ ptyxis_window_notify_process_leader_kind_cb (PtyxisWindow *self,
 }
 
 static void
+ptyxis_window_notify_tint_cb (PtyxisWindow *self,
+                              GParamSpec   *pspec,
+                              PtyxisTab    *tab)
+{
+  g_assert (PTYXIS_IS_WINDOW (self));
+  g_assert (PTYXIS_IS_TAB (tab));
+
+  set_tint_class (GTK_WIDGET (self), ptyxis_tab_get_tint (tab));
+}
+
+static void
 ptyxis_window_notify_zoom_cb (PtyxisWindow *self,
                               GParamSpec   *pspec,
                               PtyxisTab    *tab)
@@ -1596,6 +1586,7 @@ ptyxis_window_active_tab_bind_cb (PtyxisWindow *self,
   g_assert (G_IS_SIGNAL_GROUP (signals));
 
   ptyxis_window_notify_process_leader_kind_cb (self, NULL, tab);
+  ptyxis_window_notify_tint_cb (self, NULL, tab);
   ptyxis_window_notify_zoom_cb (self, NULL, tab);
 }
 
@@ -2070,7 +2061,6 @@ ptyxis_window_dispose (GObject *object)
   g_binding_group_set_source (self->profile_bindings, NULL);
   g_signal_group_set_target (self->selected_page_signals, NULL);
   g_clear_handle_id (&self->update_tints_source, g_source_remove);
-  g_clear_pointer (&self->header_tint, g_free);
   g_clear_handle_id (&self->focus_active_tab_source, g_source_remove);
   g_clear_object (&self->parking_lot);
   g_clear_object (&self->interface_style_action);
@@ -2290,6 +2280,11 @@ ptyxis_window_init (PtyxisWindow *self)
                                  self,
                                  G_CONNECT_SWAPPED);
   g_signal_group_connect_object (self->active_tab_signals,
+                                 "notify::tint",
+                                 G_CALLBACK (ptyxis_window_notify_tint_cb),
+                                 self,
+                                 G_CONNECT_SWAPPED);
+  g_signal_group_connect_object (self->active_tab_signals,
                                  "notify::zoom",
                                  G_CALLBACK (ptyxis_window_notify_zoom_cb),
                                  self,
@@ -2336,17 +2331,6 @@ ptyxis_window_init (PtyxisWindow *self)
                            G_CONNECT_SWAPPED);
   gtk_widget_add_controller (GTK_WIDGET (self->tab_bar),
                              GTK_EVENT_CONTROLLER (g_steal_pointer (&click)));
-
-  g_signal_connect_object (self->tab_view,
-                           "notify::selected-page",
-                           G_CALLBACK (ptyxis_window_queue_update_tints),
-                           self,
-                           G_CONNECT_SWAPPED);
-  g_signal_connect_object (self->tab_view,
-                           "page-reordered",
-                           G_CALLBACK (ptyxis_window_queue_update_tints),
-                           self,
-                           G_CONNECT_SWAPPED);
 
   gtk_custom_filter_set_filter_func (self->not_containers_filter,
                                      empty_display_name, NULL, NULL);
