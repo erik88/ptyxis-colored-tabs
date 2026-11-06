@@ -46,4 +46,6 @@ By default this installs to `/usr/local`, alongside any packaged Ptyxis. It uses
 
 ## License
 
-GPL-3.0-or-later, like Ptyxis. See [COPYING](COPYING). This fork is based on Ptyxis 50.1, and its changes are in this repository's history since that release.
+GPL-3.0-or-later, like Ptyxis. See [COPYING](COPYING).
+
+**Modification notice:** this is a modified version of Ptyxis 50.1. Erik Lissel changed it on 2026-11-06 to add per-tab process colors and the `process-tints` setting, and replaced this README. The full list of changes is in this repository's commit history since the `50.1` release.
