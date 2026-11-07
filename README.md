@@ -27,7 +27,24 @@ This replaces the whole list, so include `claude` if you want to keep it. Turnin
 
 ## Install
 
-There are no packages yet, so you need to build it from source. On Fedora:
+On Fedora 45 (x86_64), from [COPR](https://copr.fedorainfracloud.org/coprs/erik88/ptyxis-colored-tabs/):
+
+```sh
+sudo dnf copr enable erik88/ptyxis-colored-tabs
+sudo dnf config-manager setopt 'copr:copr.fedorainfracloud.org:erik88:ptyxis-colored-tabs.priority=50'
+sudo dnf upgrade --refresh ptyxis
+```
+
+This replaces Fedora's `ptyxis` package. The priority line makes dnf prefer this repository even when Fedora ships a newer Ptyxis, which would otherwise replace this build and remove the tab colors. The new version starts once every Ptyxis window is closed.
+
+To go back to Fedora's build:
+
+```sh
+sudo dnf copr remove erik88/ptyxis-colored-tabs
+sudo dnf distro-sync ptyxis
+```
+
+### Build from source
 
 ```sh
 sudo dnf install meson gcc gtk4-devel libadwaita-devel vte291-gtk4-devel json-glib-devel libportal-gtk4-devel desktop-file-utils gettext systemd-devel
