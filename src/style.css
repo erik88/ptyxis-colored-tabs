@@ -175,3 +175,8 @@ window.has-tab-bar .visual-bell-area {
   padding-top: 3px;
   padding-bottom: 3px;
 }
+
+/* Colored by the window dressing when the active tab has a tint */
+tabbarhighlight > highlight {
+  color: transparent;
+}

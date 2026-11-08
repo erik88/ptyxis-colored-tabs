@@ -93,25 +93,47 @@ append_tab_state (GString       *string,
                           css_class, tint, state, bg_str, text_color_for (bg, dark));
 }
 
-/* Tabs: dimmed towards the title bar when inactive, brightened when active so
- * that the active tab stands out from a header of the same color.
+/* The active tab is drawn by PtyxisTabBarHighlight, as one shape with the
+ * header, so the tab itself is transparent.
  */
 static void
-append_tab_tint (GString       *string,
-                 const char    *css_class,
-                 const char    *tint,
-                 const GdkRGBA *bg,
-                 const GdkRGBA *titlebar_bg,
-                 gboolean       dark)
+append_selected_tab (GString       *string,
+                     const char    *css_class,
+                     const char    *tint,
+                     const GdkRGBA *bg,
+                     gboolean       dark)
 {
-  static const GdkRGBA white = {1, 1, 1, 1};
+  g_autofree char *bg_str = gdk_rgba_to_string (bg);
+
+  g_string_append_printf (string,
+                          "window.%s tabbar tab.%s:selected { background-color: transparent; box-shadow: none; color: %s; }\n"
+                          "window.%s.%s tabbarhighlight > highlight { color: %s; }\n",
+                          css_class, tint, text_color_for (bg, dark),
+                          css_class, tint, bg_str);
+}
+
+/* The header, and the tabs of programs with this tint. Inactive tabs are dimmed
+ * towards the title bar, and the active tab joins the header.
+ */
+static void
+append_tint (GString       *string,
+             const char    *css_class,
+             const char    *tint,
+             const GdkRGBA *bg,
+             const GdkRGBA *header,
+             const GdkRGBA *titlebar_bg,
+             gboolean       dark)
+{
+  g_autofree char *header_str = gdk_rgba_to_string (header);
   GdkRGBA inactive = mix_rgba (bg, titlebar_bg, .45);
   GdkRGBA hover = mix_rgba (bg, titlebar_bg, .25);
-  GdkRGBA selected = mix_rgba (bg, &white, .15);
 
+  g_string_append_printf (string,
+                          "window.%s.%s .window-contents .visual-bell-area { background-color: %s; color: %s; }\n",
+                          css_class, tint, header_str, text_color_for (header, dark));
   append_tab_state (string, css_class, tint, "", &inactive, dark);
   append_tab_state (string, css_class, tint, ":hover", &hover, dark);
-  append_tab_state (string, css_class, tint, ":selected", &selected, dark);
+  append_selected_tab (string, css_class, tint, header, dark);
 }
 
 static void
@@ -131,7 +153,6 @@ append_process_tints (GString        *string,
     {
       static const GdkRGBA black = {0, 0, 0, 1};
       g_autofree char *tint = NULL;
-      g_autofree char *header_str = NULL;
       GdkRGBA header;
       GdkRGBA rgba;
 
@@ -140,16 +161,9 @@ append_process_tints (GString        *string,
 
       tint = ptyxis_settings_tint_class_for_color (&rgba);
 
-      /* The header is a darker shade, which sits between the tab states. */
+      /* Darker, so that white text on the header has enough contrast. */
       header = mix_rgba (&rgba, &black, .2);
-      header_str = gdk_rgba_to_string (&header);
-
-      g_string_append_printf (string,
-                              "window.%s.%s .window-contents headerbar { background-color: %s; color: %s; }\n"
-                              "window.%s.%s .window-contents toolbarview > revealer > windowhandle { background-color: %s; color: %s; }\n",
-                              css_class, tint, header_str, text_color_for (&header, dark),
-                              css_class, tint, header_str, text_color_for (&header, dark));
-      append_tab_tint (string, css_class, tint, &rgba, titlebar_bg, dark);
+      append_tint (string, css_class, tint, &rgba, &header, titlebar_bg, dark);
     }
 }
 
@@ -172,10 +186,6 @@ ptyxis_window_dressing_update (PtyxisWindowDressing *self)
       g_autofree char *fg = NULL;
       g_autofree char *titlebar_bg = NULL;
       g_autofree char *titlebar_fg = NULL;
-      g_autofree char *su_fg = NULL;
-      g_autofree char *su_bg = NULL;
-      g_autofree char *rm_fg = NULL;
-      g_autofree char *rm_bg = NULL;
       g_autofree char *bell_fg = NULL;
       g_autofree char *bell_bg = NULL;
       g_autofree char *accent_mix_str = NULL;
@@ -198,10 +208,6 @@ ptyxis_window_dressing_update (PtyxisWindowDressing *self)
       fg = gdk_rgba_to_string (&face->foreground);
       titlebar_bg = gdk_rgba_to_string (&face->titlebar_background);
       titlebar_fg = gdk_rgba_to_string (&face->titlebar_foreground);
-      rm_fg = gdk_rgba_to_string (&face->scarves[PTYXIS_PALETTE_SCARF_REMOTE].foreground);
-      rm_bg = gdk_rgba_to_string (&face->scarves[PTYXIS_PALETTE_SCARF_REMOTE].background);
-      su_fg = gdk_rgba_to_string (&face->scarves[PTYXIS_PALETTE_SCARF_SUPERUSER].foreground);
-      su_bg = gdk_rgba_to_string (&face->scarves[PTYXIS_PALETTE_SCARF_SUPERUSER].background);
       bell_fg = gdk_rgba_to_string (&face->scarves[PTYXIS_PALETTE_SCARF_VISUAL_BELL].foreground);
       bell_bg = gdk_rgba_to_string (&face->scarves[PTYXIS_PALETTE_SCARF_VISUAL_BELL].background);
 
@@ -273,22 +279,14 @@ ptyxis_window_dressing_update (PtyxisWindowDressing *self)
 
       if (visual_process_leader)
         {
-          g_string_append_printf (string,
-                                  "window.%s.remote .window-contents headerbar { background-color: %s; color: %s; }\n"
-                                  "window.%s.remote .window-contents toolbarview > revealer > windowhandle { background-color: %s; color: %s; }\n",
-                                  self->css_class, rm_bg, rm_fg,
-                                  self->css_class, rm_bg, rm_fg);
-          g_string_append_printf (string,
-                                  "window.%s.superuser .window-contents headerbar { background-color: %s; color: %s; }\n"
-                                  "window.%s.superuser .window-contents toolbarview > revealer > windowhandle { background-color: %s; color: %s; }\n",
-                                  self->css_class, su_bg, su_fg,
-                                  self->css_class, su_bg, su_fg);
-          append_tab_tint (string, self->css_class, "remote",
-                           &face->scarves[PTYXIS_PALETTE_SCARF_REMOTE].background,
-                           &face->titlebar_background, dark);
-          append_tab_tint (string, self->css_class, "superuser",
-                           &face->scarves[PTYXIS_PALETTE_SCARF_SUPERUSER].background,
-                           &face->titlebar_background, dark);
+          append_tint (string, self->css_class, "remote",
+                       &face->scarves[PTYXIS_PALETTE_SCARF_REMOTE].background,
+                       &face->scarves[PTYXIS_PALETTE_SCARF_REMOTE].background,
+                       &face->titlebar_background, dark);
+          append_tint (string, self->css_class, "superuser",
+                       &face->scarves[PTYXIS_PALETTE_SCARF_SUPERUSER].background,
+                       &face->scarves[PTYXIS_PALETTE_SCARF_SUPERUSER].background,
+                       &face->titlebar_background, dark);
           append_process_tints (string, settings, self->css_class, &face->titlebar_background, dark);
         }
 

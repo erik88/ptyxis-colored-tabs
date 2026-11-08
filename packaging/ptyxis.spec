@@ -10,7 +10,7 @@
 
 Name:		ptyxis
 Version:	50.1
-Release:	6.1.coloredtabs%{?dist}
+Release:	6.2.coloredtabs%{?dist}
 Summary:	A container oriented terminal for GNOME, with tabs colored by process
 
 License:	GPL-2.0-or-later AND GPL-3.0-or-later AND LGPL-3.0-or-later AND LGPL-2.0-or-later AND CC0-1.0
@@ -81,6 +81,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/org.gnome.Ptyxis.desk
 %{_mandir}/man1/ptyxis.1*
 
 %changelog
+* Sun Nov 08 2026 Erik Lissel <erik@lissel.net> - 50.1-6.2.coloredtabs
+- Keep the tab bar neutral and join the active colored tab to the header
+- Improve text contrast on the active colored tab
+
 * Sat Nov 07 2026 Erik Lissel <erik@lissel.net> - 50.1-6.1.coloredtabs
 - Color tabs and the window header by foreground process
 - Add the process-tints setting

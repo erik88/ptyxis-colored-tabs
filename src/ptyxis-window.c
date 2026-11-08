@@ -32,6 +32,7 @@
 #include "ptyxis-preferences-window.h"
 #include "ptyxis-settings.h"
 #include "ptyxis-shrinker.h"
+#include "ptyxis-tab-bar-highlight.h"
 #include "ptyxis-tab-monitor.h"
 #include "ptyxis-tab-private.h"
 #include "ptyxis-theme-selector.h"
@@ -2233,6 +2234,7 @@ ptyxis_window_class_init (PtyxisWindowClass *klass)
   g_type_ensure (PTYXIS_TYPE_FIND_BAR);
   g_type_ensure (PTYXIS_TYPE_FULLSCREEN_BOX);
   g_type_ensure (PTYXIS_TYPE_GATED_LIST_MODEL);
+  g_type_ensure (PTYXIS_TYPE_TAB_BAR_HIGHLIGHT);
   g_type_ensure (PTYXIS_TYPE_MENU_ROW);
   g_type_ensure (PTYXIS_TYPE_SHRINKER);
 }
